@@ -18,18 +18,34 @@ public class DocumentoServicio {
     public static String[] getEncabezados() { return encabezados.clone(); }
 
     public static void cargar(String nombreArchivo) {
-        try (Stream<String> lineas = Files.lines(Paths.get(nombreArchivo), StandardCharsets.UTF_8)) {
-            documentos = lineas.skip(1)
-                    .filter(linea -> linea != null && !linea.isBlank())
-                    .map(linea -> linea.split(";", -1))
-                    .filter(textos -> textos.length >= 4)
-                    .map(textos -> new Documento(textos[0].trim(), textos[1].trim(),
-                            textos[2].trim(), textos[3].trim()))
-                    .collect(Collectors.toCollection(ArrayList::new));
+        documentos = new ArrayList<>();
+        try {
+            java.nio.file.Path archivoPrincipal = Paths.get(nombreArchivo);
+            cargarArchivo(archivoPrincipal, true);
+            // El archivo entregado tiene 100000 líneas; para conservarlo en GitHub
+            // se distribuyó en bloques consecutivos Datos.csv, Datos_02.csv ... Datos_06.csv.
+            for (int parte = 2; parte <= 6; parte++) {
+                String sufijo = String.format("_%02d.csv", parte);
+                String rutaParte = nombreArchivo.substring(0, nombreArchivo.length() - 4) + sufijo;
+                java.nio.file.Path archivoParte = Paths.get(rutaParte);
+                if (Files.exists(archivoParte)) cargarArchivo(archivoParte, false);
+            }
             System.out.println("Documentos cargados: " + documentos.size());
         } catch (Exception e) {
             documentos = new ArrayList<>();
             throw new IllegalStateException("No fue posible cargar el archivo " + nombreArchivo, e);
+        }
+    }
+
+    private static void cargarArchivo(java.nio.file.Path ruta, boolean omitirEncabezado) throws java.io.IOException {
+        try (Stream<String> lineas = Files.lines(ruta, StandardCharsets.UTF_8)) {
+            Stream<String> contenido = omitirEncabezado ? lineas.skip(1) : lineas;
+            contenido.filter(linea -> linea != null && !linea.isBlank())
+                    .map(linea -> linea.split(";", -1))
+                    .filter(textos -> textos.length >= 4)
+                    .map(textos -> new Documento(textos[0].trim(), textos[1].trim(),
+                            textos[2].trim(), textos[3].trim()))
+                    .forEach(documentos::add);
         }
     }
 
