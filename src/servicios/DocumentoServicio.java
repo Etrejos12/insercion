@@ -1,191 +1,185 @@
 package servicios;
 
 import modelos.Documento;
-import java.io.BufferedReader;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-/**
- * Carga los documentos del CSV y ofrece cuatro algoritmos de ordenamiento.
- * El criterio corresponde al indice de la columna seleccionada en la vista.
- */
 public class DocumentoServicio {
-    private static final List<Documento> documentos = new ArrayList<>();
-    private static String[] encabezados = new String[0];
+    private static final String[] encabezados = {
+            "#", "Primer Apellido", "Segundo Apellido", "Nombres", "Documento"
+    };
+    private static List<Documento> documentos = new ArrayList<>();
 
-    public static void cargarDatos(String nombreArchivo) {
-        documentos.clear();
-        encabezados = new String[0];
+    public static String[] getEncabezados() { return encabezados.clone(); }
 
-        try (BufferedReader lector = Files.newBufferedReader(Path.of(nombreArchivo), StandardCharsets.UTF_8)) {
-            String linea = lector.readLine();
-            if (linea == null) return;
-
-            encabezados = separarCSV(linea);
-            while ((linea = lector.readLine()) != null) {
-                if (!linea.isBlank()) {
-                    String[] valores = separarCSV(linea);
-                    String[] fila = new String[encabezados.length];
-                    for (int i = 0; i < fila.length; i++) {
-                        fila[i] = i < valores.length ? valores[i] : "";
-                    }
-                    documentos.add(new Documento(fila));
-                }
+    public static void cargar(String nombreArchivo) {
+        documentos = new ArrayList<>();
+        try {
+            java.nio.file.Path archivoPrincipal = Paths.get(nombreArchivo);
+            cargarArchivo(archivoPrincipal, true);
+            // El archivo entregado tiene 100000 líneas; para conservarlo en GitHub
+            // se distribuyó en bloques consecutivos Datos.csv, Datos_02.csv ... Datos_06.csv.
+            for (int parte = 2; parte <= 6; parte++) {
+                String sufijo = String.format("_%02d.csv", parte);
+                String rutaParte = nombreArchivo.substring(0, nombreArchivo.length() - 4) + sufijo;
+                java.nio.file.Path archivoParte = Paths.get(rutaParte);
+                if (Files.exists(archivoParte)) cargarArchivo(archivoParte, false);
             }
-        } catch (IOException e) {
-            throw new IllegalStateException("No fue posible cargar el archivo: " + nombreArchivo, e);
+            System.out.println("Documentos cargados: " + documentos.size());
+        } catch (Exception e) {
+            documentos = new ArrayList<>();
+            throw new IllegalStateException("No fue posible cargar el archivo " + nombreArchivo, e);
         }
     }
 
-    private static String[] separarCSV(String linea) {
-        List<String> campos = new ArrayList<>();
-        StringBuilder campo = new StringBuilder();
-        boolean entreComillas = false;
-
-        for (int i = 0; i < linea.length(); i++) {
-            char c = linea.charAt(i);
-            if (c == '"') {
-                if (entreComillas && i + 1 < linea.length() && linea.charAt(i + 1) == '"') {
-                    campo.append('"');
-                    i++;
-                } else {
-                    entreComillas = !entreComillas;
-                }
-            } else if (c == ',' && !entreComillas) {
-                campos.add(campo.toString().trim());
-                campo.setLength(0);
-            } else {
-                campo.append(c);
-            }
+    private static void cargarArchivo(java.nio.file.Path ruta, boolean omitirEncabezado) throws java.io.IOException {
+        try (Stream<String> lineas = Files.lines(ruta, StandardCharsets.UTF_8)) {
+            Stream<String> contenido = omitirEncabezado ? lineas.skip(1) : lineas;
+            contenido.filter(linea -> linea != null && !linea.isBlank())
+                    .map(linea -> linea.split(";", -1))
+                    .filter(textos -> textos.length >= 4)
+                    .map(textos -> new Documento(textos[0].trim(), textos[1].trim(),
+                            textos[2].trim(), textos[3].trim()))
+                    .forEach(documentos::add);
         }
-        campos.add(campo.toString().trim());
-        return campos.toArray(new String[0]);
     }
 
-    public static String[] getEncabezados() {
-        return encabezados.clone();
-    }
-
-    public static String[][] getDatos() {
+    public static String[][] getDatosDocumentos() {
         String[][] datos = new String[documentos.size()][encabezados.length];
         for (int i = 0; i < documentos.size(); i++) {
-            datos[i] = documentos.get(i).getValores();
+            Documento d = documentos.get(i);
+            datos[i] = new String[]{String.valueOf(i + 1), d.getApellido1(),
+                    d.getApellido2(), d.getNombre(), d.getDocumento()};
         }
         return datos;
     }
 
-    private static boolean esMayor(Documento d1, Documento d2, int criterio) {
-        String a = d1.getValor(criterio).trim();
-        String b = d2.getValor(criterio).trim();
-        try {
-            return Double.parseDouble(a.replace(",", ".")) > Double.parseDouble(b.replace(",", "."));
-        } catch (NumberFormatException ignored) {
-            return a.compareToIgnoreCase(b) > 0;
+    private static boolean esMayor(Documento dI, Documento dJ, int criterio) {
+        int comparacion;
+        if (criterio == 0) {
+            comparacion = dI.getNombreCompleto().compareToIgnoreCase(dJ.getNombreCompleto());
+            if (comparacion == 0)
+                comparacion = dI.getDocumento().compareToIgnoreCase(dJ.getDocumento());
+        } else {
+            comparacion = dI.getDocumento().compareToIgnoreCase(dJ.getDocumento());
+            if (comparacion == 0)
+                comparacion = dI.getNombreCompleto().compareToIgnoreCase(dJ.getNombreCompleto());
         }
+        return comparacion > 0;
     }
 
-    public static void ordenarBurbuja(int criterio) {
+    private static void intercambiar(int origen, int destino) {
+        Documento temporal = documentos.get(origen);
+        documentos.set(origen, documentos.get(destino));
+        documentos.set(destino, temporal);
+    }
+
+    private static void iniciarMedicion() { CronometroServicio.iniciarCronometro(); }
+    private static String terminarMedicion() {
+        CronometroServicio.detenerCronometro();
+        return CronometroServicio.getTextoTiempoCronometro();
+    }
+
+    // Ordenamiento por intercambio, conservando el recorrido del ejemplo del taller.
+    public static String ordenarBurbuja(int criterio) {
+        iniciarMedicion();
         for (int i = 0; i < documentos.size() - 1; i++) {
-            for (int j = 0; j < documentos.size() - 1 - i; j++) {
-                if (esMayor(documentos.get(j), documentos.get(j + 1), criterio)) {
-                    Documento temporal = documentos.get(j);
-                    documentos.set(j, documentos.get(j + 1));
-                    documentos.set(j + 1, temporal);
-                }
+            for (int j = i + 1; j < documentos.size(); j++) {
+                if (esMayor(documentos.get(i), documentos.get(j), criterio))
+                    intercambiar(i, j);
             }
         }
+        return terminarMedicion();
     }
 
-    public static void ordenarRapido(int criterio) {
-        if (documentos.size() > 1) {
-            rapido(0, documentos.size() - 1, criterio);
-        }
+    public static String ordenarRapido(int criterio) {
+        iniciarMedicion();
+        _ordenarRapido(0, documentos.size() - 1, criterio);
+        return terminarMedicion();
     }
 
-    private static void rapido(int inicio, int fin, int criterio) {
-        int i = inicio;
-        int j = fin;
-        Documento pivote = documentos.get((inicio + fin) / 2);
+    private static void _ordenarRapido(int inicio, int fin, int criterio) {
+        if (inicio >= fin) return;
+        int posicionPivote = ubicarPivote(inicio, fin, criterio);
+        _ordenarRapido(inicio, posicionPivote - 1, criterio);
+        _ordenarRapido(posicionPivote + 1, fin, criterio);
+    }
 
-        while (i <= j) {
-            while (esMenor(documentos.get(i), pivote, criterio)) i++;
-            while (esMayor(documentos.get(j), pivote, criterio)) j--;
-            if (i <= j) {
-                Documento temporal = documentos.get(i);
-                documentos.set(i, documentos.get(j));
-                documentos.set(j, temporal);
-                i++;
-                j--;
+    private static int ubicarPivote(int inicio, int fin, int criterio) {
+        Documento pivote = documentos.get(inicio);
+        int posicionPivote = inicio;
+        for (int i = inicio + 1; i <= fin; i++) {
+            if (esMayor(pivote, documentos.get(i), criterio)) {
+                posicionPivote++;
+                if (i != posicionPivote) intercambiar(i, posicionPivote);
             }
         }
-        if (inicio < j) rapido(inicio, j, criterio);
-        if (i < fin) rapido(i, fin, criterio);
+        if (inicio != posicionPivote) intercambiar(inicio, posicionPivote);
+        return posicionPivote;
     }
 
-    private static boolean esMenor(Documento d1, Documento d2, int criterio) {
-        return !esMayor(d1, d2, criterio) && !sonIguales(d1, d2, criterio);
-    }
-
-    private static boolean sonIguales(Documento d1, Documento d2, int criterio) {
-        return d1.getValor(criterio).trim().compareToIgnoreCase(d2.getValor(criterio).trim()) == 0
-                || (!esMayor(d1, d2, criterio) && !esMayor(d2, d1, criterio));
-    }
-
-    /********** Inserción **********/
-    public static void ordenarInsercion(int criterio) {
+    // Inserción directa: desplaza los mayores para ubicar la clave.
+    public static String ordenarInsercion(int criterio) {
+        iniciarMedicion();
         for (int i = 1; i < documentos.size(); i++) {
             Documento clave = documentos.get(i);
             int j = i - 1;
-            // desplaza hacia la derecha los elementos mayores que la clave
             while (j >= 0 && esMayor(documentos.get(j), clave, criterio)) {
                 documentos.set(j + 1, documentos.get(j));
                 j--;
             }
             documentos.set(j + 1, clave);
         }
+        return terminarMedicion();
     }
 
-    /********** Mezcla (Merge Sort) **********/
-    public static void ordenarMezcla(int criterio) {
-        if (documentos.size() < 2)
-            return;
-        Documento[] arr = documentos.toArray(new Documento[0]);
-        Documento[] aux = new Documento[arr.length];
-        mezclaRec(arr, aux, 0, arr.length - 1, criterio);
-        // copia el resultado de vuelta a la lista
-        for (int i = 0; i < arr.length; i++) {
-            documentos.set(i, arr[i]);
+    // Selección directa: ubica el menor elemento restante en cada posición.
+    public static String ordenarSeleccion(int criterio) {
+        iniciarMedicion();
+        for (int i = 0; i < documentos.size() - 1; i++) {
+            int menor = i;
+            for (int j = i + 1; j < documentos.size(); j++)
+                if (esMayor(documentos.get(menor), documentos.get(j), criterio)) menor = j;
+            if (menor != i) intercambiar(i, menor);
         }
+        return terminarMedicion();
     }
 
-    private static void mezclaRec(Documento[] arr, Documento[] aux, int izq, int der, int criterio) {
-        if (izq >= der)
-            return;
-        int medio = (izq + der) / 2;
-        mezclaRec(arr, aux, izq, medio, criterio);
-        mezclaRec(arr, aux, medio + 1, der, criterio);
-        merge(arr, aux, izq, medio, der, criterio);
+    // Mezcla recursiva: divide, ordena las mitades y las combina de forma estable.
+    public static String ordenarMezcla(int criterio) {
+        iniciarMedicion();
+        if (documentos.size() > 1) {
+            Documento[] arreglo = documentos.toArray(new Documento[0]);
+            Documento[] auxiliar = new Documento[arreglo.length];
+            mezclaRec(arreglo, auxiliar, 0, arreglo.length - 1, criterio);
+            for (int i = 0; i < arreglo.length; i++) documentos.set(i, arreglo[i]);
+        }
+        return terminarMedicion();
     }
 
-    private static void merge(Documento[] arr, Documento[] aux, int izq, int medio, int der, int criterio) {
-        for (int k = izq; k <= der; k++) {
-            aux[k] = arr[k];
+    private static void mezclaRec(Documento[] arreglo, Documento[] auxiliar,
+                                  int inicio, int fin, int criterio) {
+        if (inicio >= fin) return;
+        int medio = inicio + (fin - inicio) / 2;
+        mezclaRec(arreglo, auxiliar, inicio, medio, criterio);
+        mezclaRec(arreglo, auxiliar, medio + 1, fin, criterio);
+        merge(arreglo, auxiliar, inicio, medio, fin, criterio);
+    }
+
+    private static void merge(Documento[] arreglo, Documento[] auxiliar,
+                              int inicio, int medio, int fin, int criterio) {
+        System.arraycopy(arreglo, inicio, auxiliar, inicio, fin - inicio + 1);
+        int i = inicio, j = medio + 1, k = inicio;
+        while (i <= medio && j <= fin) {
+            if (!esMayor(auxiliar[i], auxiliar[j], criterio)) arreglo[k++] = auxiliar[i++];
+            else arreglo[k++] = auxiliar[j++];
         }
-        int i = izq, j = medio + 1, k = izq;
-        while (i <= medio && j <= der) {
-            // si no es mayor, se toma primero el de la izquierda (mantiene la estabilidad)
-            if (!esMayor(aux[i], aux[j], criterio))
-                arr[k++] = aux[i++];
-            else
-                arr[k++] = aux[j++];
-        }
-        while (i <= medio)
-            arr[k++] = aux[i++];
-        while (j <= der)
-            arr[k++] = aux[j++];
+        while (i <= medio) arreglo[k++] = auxiliar[i++];
+        while (j <= fin) arreglo[k++] = auxiliar[j++];
     }
 }
