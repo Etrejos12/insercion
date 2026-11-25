@@ -4,6 +4,7 @@ import servicios.CronometroServicio;
 import servicios.DocumentoServicio;
 import vistas.OrdenamientoVista;
 import javax.swing.SwingUtilities;
+import java.util.function.IntFunction;
 
 public class OrdenamientoControlador {
     private final OrdenamientoVista vista;
@@ -11,66 +12,54 @@ public class OrdenamientoControlador {
 
     public OrdenamientoControlador(OrdenamientoVista vista) {
         this.vista = vista;
-
         this.vista.setOrdenarBurbuja(evento -> ordenarBurbuja());
         this.vista.setOrdenarRapido(evento -> ordenarRapido());
         this.vista.setOrdenarInsercion(evento -> ordenarInsercion());
+        this.vista.setOrdenarSeleccion(evento -> ordenarSeleccion());
         this.vista.setOrdenarMezcla(evento -> ordenarMezcla());
 
-        String nombreArchivo = System.getProperty("user.dir") + "/src/datos/Datos.csv";
-        DocumentoServicio.cargarDatos(nombreArchivo);
+        String rutaArchivo = System.getProperty("user.dir") + "/src/datos/Datos.csv";
+        DocumentoServicio.cargar(rutaArchivo);
         mostrar();
     }
 
     private void mostrar() {
-        vista.mostrarDatos(DocumentoServicio.getEncabezados(), DocumentoServicio.getDatos());
+        vista.mostrarDatos(DocumentoServicio.getEncabezados(), DocumentoServicio.getDatosDocumentos());
     }
 
-    private void ordenarBurbuja() {
-        if (vista.getCriterio() < 0) return;
-        ejecutarProceso(() -> DocumentoServicio.ordenarBurbuja(vista.getCriterio()));
-    }
+    private void ordenarBurbuja() { ejecutarProceso(DocumentoServicio::ordenarBurbuja); }
+    private void ordenarRapido() { ejecutarProceso(DocumentoServicio::ordenarRapido); }
+    private void ordenarInsercion() { ejecutarProceso(DocumentoServicio::ordenarInsercion); }
+    private void ordenarSeleccion() { ejecutarProceso(DocumentoServicio::ordenarSeleccion); }
+    private void ordenarMezcla() { ejecutarProceso(DocumentoServicio::ordenarMezcla); }
 
-    private void ordenarRapido() {
-        if (vista.getCriterio() < 0) return;
-        ejecutarProceso(() -> DocumentoServicio.ordenarRapido(vista.getCriterio()));
-    }
+    private void ejecutarProceso(IntFunction<String> algoritmo) {
+        int criterio = vista.getCriterio();
+        if (criterio < 0 || ejecutando) return;
 
-    private void ordenarInsercion() {
-        if (vista.getCriterio() < 0) return;
-        ejecutarProceso(() -> DocumentoServicio.ordenarInsercion(vista.getCriterio()));
-    }
-
-    private void ordenarMezcla() {
-        if (vista.getCriterio() < 0) return;
-        ejecutarProceso(() -> DocumentoServicio.ordenarMezcla(vista.getCriterio()));
-    }
-
-    // Ejecuta el ordenamiento en un hilo y actualiza el cronometro en otro.
-    private void ejecutarProceso(Runnable accion) {
-        if (ejecutando) return;
         ejecutando = true;
         CronometroServicio.iniciarCronometro();
 
         Thread hiloOrdenamiento = new Thread(() -> {
             try {
-                accion.run();
-                mostrar();
+                String tiempo = algoritmo.apply(criterio);
+                SwingUtilities.invokeLater(() -> {
+                    mostrar();
+                    vista.mostrarTiempo(tiempo);
+                });
             } finally {
-                CronometroServicio.detenerCronometro();
                 ejecutando = false;
-                SwingUtilities.invokeLater(() ->
-                    vista.setTiempo(CronometroServicio.getTextoTiempoCronometro()));
             }
         }, "hilo-ordenamiento");
         hiloOrdenamiento.start();
 
         Thread hiloCronometro = new Thread(() -> {
             while (ejecutando) {
+                vista.mostrarTiempo(CronometroServicio.getTextoTiempoCronometro());
                 CronometroServicio.pausarMilisegundos(50);
-                vista.setTiempo(CronometroServicio.getTextoTiempoCronometro());
             }
         }, "hilo-cronometro");
+        hiloCronometro.setDaemon(true);
         hiloCronometro.start();
     }
 }
