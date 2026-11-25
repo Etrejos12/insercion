@@ -24,7 +24,6 @@ src/
   vistas/OrdenamientoVista.java
   datos/Datos.csv
   datos/Datos_02.csv ... Datos_06.csv
-  iconos/
 ```
 
 El archivo de datos suministrado contiene 100000 líneas contando el encabezado. Para conservar todos los registros en el repositorio, se guardó en seis partes consecutivas. La aplicación las carga como un solo conjunto: no se deben ordenar por separado.
